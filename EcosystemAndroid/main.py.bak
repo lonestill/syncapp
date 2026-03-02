@@ -1,0 +1,536 @@
+import asyncio
+import os
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
+
+
+router = Router()
+DB_PATH = Path(__file__).with_name("users.db")
+SKIP_TEXT = "Пропустить"
+NOT_SPECIFIED = "Не указано"
+CANCEL_TEXT = "Отмена"
+
+EDITABLE_FIELDS = {
+    "Фамилия": "last_name",
+    "Имя": "first_name",
+    "Отчество": "middle_name",
+    "Никнейм": "nickname",
+    "Статус отношений": "relationship_status",
+    "О себе": "about_self",
+}
+FIELD_LABELS = {v: k for k, v in EDITABLE_FIELDS.items()}
+
+
+class Registration(StatesGroup):
+    last_name = State()
+    first_name = State()
+    middle_name = State()
+    nickname = State()
+    relationship_status = State()
+    about_self = State()
+
+
+class EditProfile(StatesGroup):
+    choosing_field = State()
+    entering_value = State()
+
+
+def get_menu_keyboard(is_registered: bool) -> ReplyKeyboardMarkup:
+    if is_registered:
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Мой профиль"), KeyboardButton(text="Редактировать профиль")],
+                [KeyboardButton(text="О нас")],
+            ],
+            resize_keyboard=True,
+        )
+
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Регистрация")],
+            [KeyboardButton(text="О нас")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_relationship_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="В отношениях")],
+            [KeyboardButton(text="Не в отношениях")],
+            [KeyboardButton(text=SKIP_TEXT)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def get_suggestion_keyboard(suggestion: str | None) -> ReplyKeyboardMarkup | None:
+    if not suggestion:
+        return None
+
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=suggestion)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def get_input_keyboard(suggestion: str | None) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
+    keyboard = get_suggestion_keyboard(suggestion)
+    if keyboard:
+        return keyboard
+    return ReplyKeyboardRemove()
+
+
+def get_skip_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=SKIP_TEXT)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def get_edit_fields_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Фамилия"), KeyboardButton(text="Имя")],
+            [KeyboardButton(text="Отчество"), KeyboardButton(text="Никнейм")],
+            [KeyboardButton(text="Статус отношений"), KeyboardButton(text="О себе")],
+            [KeyboardButton(text=CANCEL_TEXT)],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def normalize_optional_field(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned or cleaned == SKIP_TEXT:
+        return NOT_SPECIFIED
+    return cleaned
+
+
+def init_db() -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                last_name TEXT NOT NULL,
+                first_name TEXT NOT NULL,
+                middle_name TEXT NOT NULL,
+                nickname TEXT NOT NULL,
+                relationship_status TEXT NOT NULL,
+                about_self TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def save_user(user_id: int, data: dict[str, str]) -> None:
+    now = datetime.utcnow().isoformat()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (
+                user_id, last_name, first_name, middle_name,
+                nickname, relationship_status, about_self,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                last_name = excluded.last_name,
+                first_name = excluded.first_name,
+                middle_name = excluded.middle_name,
+                nickname = excluded.nickname,
+                relationship_status = excluded.relationship_status,
+                about_self = excluded.about_self,
+                updated_at = excluded.updated_at
+            """,
+            (
+                user_id,
+                data["last_name"],
+                data["first_name"],
+                data["middle_name"],
+                data["nickname"],
+                data["relationship_status"],
+                data["about_self"],
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def get_user(user_id: int) -> tuple | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT last_name, first_name, middle_name, nickname, relationship_status, about_self
+            FROM users
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return row
+
+
+def is_registered_user(user_id: int) -> bool:
+    return get_user(user_id) is not None
+
+
+def get_user_as_dict(user_id: int) -> dict[str, str] | None:
+    row = get_user(user_id)
+    if not row:
+        return None
+    return {
+        "last_name": row[0],
+        "first_name": row[1],
+        "middle_name": row[2],
+        "nickname": row[3],
+        "relationship_status": row[4],
+        "about_self": row[5],
+    }
+
+
+def update_user_field(user_id: int, field_name: str, value: str) -> None:
+    if field_name not in FIELD_LABELS:
+        raise ValueError("Некорректное поле для обновления")
+
+    now = datetime.utcnow().isoformat()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            f"UPDATE users SET {field_name} = ?, updated_at = ? WHERE user_id = ?",
+            (value, now, user_id),
+        )
+        conn.commit()
+
+
+@router.message(Command("start"))
+async def cmd_start(message: Message) -> None:
+    registered = is_registered_user(message.from_user.id)
+    start_text = (
+        "Привет! Я бот с регистрацией и профилем.\n"
+        "Открой «Мой профиль» или раздел «О нас»."
+        if registered
+        else "Привет! Я бот с регистрацией и профилем.\n"
+        "Нажми «Регистрация», чтобы заполнить данные."
+    )
+    await message.answer(
+        start_text,
+        reply_markup=get_menu_keyboard(registered),
+    )
+
+
+@router.message(F.text == "О нас")
+async def about_company(message: Message) -> None:
+    await message.answer(
+        "О нас:\n"
+        "Мы создаем полезные цифровые сервисы для людей и команд.\n"
+        "Этот бот помогает собирать и хранить анкету пользователя в базе данных.\n"
+        "Доступные разделы: регистрация, просмотр профиля"
+    )
+
+
+@router.message(F.text == "Мой профиль")
+async def my_profile(message: Message) -> None:
+    row = get_user(message.from_user.id)
+    if not row:
+        await message.answer(
+            "Профиль пока не заполнен. Нажми «Регистрация».",
+            reply_markup=get_menu_keyboard(False),
+        )
+        return
+
+    last_name, first_name, middle_name, nickname, relation, about_self = row
+    middle_name_text = middle_name if middle_name and middle_name != NOT_SPECIFIED else NOT_SPECIFIED
+    relation_text = relation if relation and relation != NOT_SPECIFIED else NOT_SPECIFIED
+    about_self_text = about_self if about_self and about_self != NOT_SPECIFIED else NOT_SPECIFIED
+    await message.answer(
+        "Твой профиль:\n"
+        f"Фамилия: {last_name}\n"
+        f"Имя: {first_name}\n"
+        f"Отчество: {middle_name_text}\n"
+        f"Никнейм: {nickname}\n"
+        f"Статус: {relation_text}\n"
+        f"О себе: {about_self_text}",
+        reply_markup=get_menu_keyboard(True),
+    )
+
+
+@router.message(F.text == "Регистрация")
+async def start_registration(message: Message, state: FSMContext) -> None:
+    if is_registered_user(message.from_user.id):
+        await message.answer(
+            "Ты уже зарегистрирован. Используй кнопку «Мой профиль».",
+            reply_markup=get_menu_keyboard(True),
+        )
+        return
+
+    await state.clear()
+    await state.set_state(Registration.last_name)
+    tg_last_name = (message.from_user.last_name or "").strip() or None
+    prompt = "Введи фамилию:"
+    if tg_last_name:
+        prompt += f"\nМожно выбрать из Telegram: {tg_last_name}"
+    await message.answer(prompt, reply_markup=get_input_keyboard(tg_last_name))
+
+
+@router.message(F.text == "Редактировать профиль")
+async def start_edit_profile(message: Message, state: FSMContext) -> None:
+    if not is_registered_user(message.from_user.id):
+        await message.answer(
+            "Сначала нужно пройти регистрацию.",
+            reply_markup=get_menu_keyboard(False),
+        )
+        return
+
+    await state.clear()
+    await state.set_state(EditProfile.choosing_field)
+    await message.answer(
+        "Выбери поле, которое хочешь изменить:",
+        reply_markup=get_edit_fields_keyboard(),
+    )
+
+
+@router.message(EditProfile.choosing_field)
+async def choose_field_for_edit(message: Message, state: FSMContext) -> None:
+    selected_label = message.text.strip()
+    if selected_label == CANCEL_TEXT:
+        await state.clear()
+        await message.answer("Редактирование отменено.", reply_markup=get_menu_keyboard(True))
+        return
+
+    field_name = EDITABLE_FIELDS.get(selected_label)
+    if not field_name:
+        await message.answer(
+            "Выбери поле кнопкой ниже или нажми «Отмена».",
+            reply_markup=get_edit_fields_keyboard(),
+        )
+        return
+
+    current_data = get_user_as_dict(message.from_user.id)
+    current_value = current_data[field_name] if current_data else NOT_SPECIFIED
+    await state.update_data(edit_field=field_name)
+    await state.set_state(EditProfile.entering_value)
+
+    if field_name == "last_name":
+        suggestion = (message.from_user.last_name or "").strip() or None
+        text = (
+            f"Текущее значение: {current_value}\n"
+            "Введи новую фамилию:"
+        )
+        if suggestion:
+            text += f"\nМожно выбрать из Telegram: {suggestion}"
+        await message.answer(text, reply_markup=get_input_keyboard(suggestion))
+        return
+
+    if field_name == "first_name":
+        suggestion = (message.from_user.first_name or "").strip() or None
+        text = (
+            f"Текущее значение: {current_value}\n"
+            "Введи новое имя:"
+        )
+        if suggestion:
+            text += f"\nМожно выбрать из Telegram: {suggestion}"
+        await message.answer(text, reply_markup=get_input_keyboard(suggestion))
+        return
+
+    if field_name == "middle_name":
+        await message.answer(
+            f"Текущее значение: {current_value}\n"
+            "Введи новое отчество или нажми «Пропустить»:",
+            reply_markup=get_skip_keyboard(),
+        )
+        return
+
+    if field_name == "nickname":
+        tg_username = (message.from_user.username or "").strip()
+        suggestion = f"@{tg_username}" if tg_username else None
+        text = (
+            f"Текущее значение: {current_value}\n"
+            "Введи новый никнейм:"
+        )
+        if suggestion:
+            text += f"\nМожно выбрать из Telegram: {suggestion}"
+        await message.answer(text, reply_markup=get_input_keyboard(suggestion))
+        return
+
+    if field_name == "relationship_status":
+        await message.answer(
+            f"Текущее значение: {current_value}\n"
+            "Выбери новый статус или нажми «Пропустить»:",
+            reply_markup=get_relationship_keyboard(),
+        )
+        return
+
+    await message.answer(
+        f"Текущее значение: {current_value}\n"
+        "Введи новый текст о себе или нажми «Пропустить»:",
+        reply_markup=get_skip_keyboard(),
+    )
+
+
+@router.message(EditProfile.entering_value)
+async def save_edited_field(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    field_name = data.get("edit_field")
+    raw_value = message.text.strip()
+
+    if field_name not in FIELD_LABELS:
+        await state.clear()
+        await message.answer("Сессия редактирования сброшена. Попробуй снова.", reply_markup=get_menu_keyboard(True))
+        return
+
+    if field_name == "relationship_status":
+        if raw_value not in {"В отношениях", "Не в отношениях", SKIP_TEXT}:
+            await message.answer(
+                "Пожалуйста, выбери статус кнопкой ниже.",
+                reply_markup=get_relationship_keyboard(),
+            )
+            return
+        value = normalize_optional_field(raw_value)
+    elif field_name in {"middle_name", "about_self"}:
+        value = normalize_optional_field(raw_value)
+    else:
+        if not raw_value:
+            await message.answer("Это поле нельзя оставить пустым. Введи значение.")
+            return
+        value = raw_value
+
+    update_user_field(message.from_user.id, field_name, value)
+    await state.clear()
+    await message.answer(
+        f"Поле «{FIELD_LABELS[field_name]}» обновлено.",
+        reply_markup=get_menu_keyboard(True),
+    )
+
+
+@router.message(Registration.last_name)
+async def reg_last_name(message: Message, state: FSMContext) -> None:
+    await state.update_data(last_name=message.text.strip())
+    await state.set_state(Registration.first_name)
+    tg_first_name = (message.from_user.first_name or "").strip() or None
+    prompt = "Введи имя:"
+    if tg_first_name:
+        prompt += f"\nМожно выбрать из Telegram: {tg_first_name}"
+    await message.answer(prompt, reply_markup=get_input_keyboard(tg_first_name))
+
+
+@router.message(Registration.first_name)
+async def reg_first_name(message: Message, state: FSMContext) -> None:
+    await state.update_data(first_name=message.text.strip())
+    await state.set_state(Registration.middle_name)
+    await message.answer(
+        "Введи отчество или нажми «Пропустить»:",
+        reply_markup=get_skip_keyboard(),
+    )
+
+
+@router.message(Registration.middle_name)
+async def reg_middle_name(message: Message, state: FSMContext) -> None:
+    middle_name = normalize_optional_field(message.text)
+    await state.update_data(middle_name=middle_name)
+    await state.set_state(Registration.nickname)
+    tg_username = (message.from_user.username or "").strip()
+    suggested_nick = f"@{tg_username}" if tg_username else None
+    prompt = "Введи никнейм:"
+    if suggested_nick:
+        prompt += f"\nМожно выбрать из Telegram: {suggested_nick}"
+    await message.answer(prompt, reply_markup=get_input_keyboard(suggested_nick))
+
+
+@router.message(Registration.nickname)
+async def reg_nickname(message: Message, state: FSMContext) -> None:
+    await state.update_data(nickname=message.text.strip())
+    await state.set_state(Registration.relationship_status)
+    await message.answer(
+        "Выбери статус отношений или нажми «Пропустить»:",
+        reply_markup=get_relationship_keyboard(),
+    )
+
+
+@router.message(Registration.relationship_status)
+async def reg_relationship_status(message: Message, state: FSMContext) -> None:
+    status = message.text.strip()
+    if status not in {"В отношениях", "Не в отношениях", SKIP_TEXT}:
+        await message.answer(
+            "Пожалуйста, выбери один из вариантов кнопками ниже.",
+            reply_markup=get_relationship_keyboard(),
+        )
+        return
+
+    relationship_status = normalize_optional_field(status)
+    await state.update_data(relationship_status=relationship_status)
+    await state.set_state(Registration.about_self)
+    await message.answer(
+        "Напиши пару слов о себе или нажми «Пропустить»:",
+        reply_markup=get_skip_keyboard(),
+    )
+
+
+@router.message(Registration.about_self)
+async def reg_about_self(message: Message, state: FSMContext) -> None:
+    about_self = normalize_optional_field(message.text)
+    await state.update_data(about_self=about_self)
+    data = await state.get_data()
+    save_user(message.from_user.id, data)
+    await state.clear()
+    await message.answer(
+        "Регистрация завершена! Данные сохранены в базу.",
+        reply_markup=get_menu_keyboard(True),
+    )
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    registered = is_registered_user(message.from_user.id)
+    buttons = (
+        "• Мой профиль\n• Редактировать профиль\n• О нас"
+        if registered
+        else "• Регистрация\n• О нас"
+    )
+    await message.answer(
+        "Команды и кнопки:\n"
+        "/start — открыть меню\n"
+        "/help — помощь\n\n"
+        "Кнопки:\n"
+        f"{buttons}",
+        reply_markup=get_menu_keyboard(registered),
+    )
+
+
+@router.message()
+async def fallback(message: Message) -> None:
+    registered = is_registered_user(message.from_user.id)
+    await message.answer(
+        "Используй кнопки меню или /help.",
+        reply_markup=get_menu_keyboard(registered),
+    )
+
+
+async def main() -> None:
+    token = "8774229409:AAF8W9tFoCpUQoIl6UKkWNeDq6YduL2lUwA"
+
+    init_db()
+    bot = Bot(token=token)
+    dp = Dispatcher()
+    dp.include_router(router)
+
+    print("Bot started. Press Ctrl+C to stop.")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

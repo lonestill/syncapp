@@ -1,0 +1,102 @@
+<Window x:Class="EcosystemWindows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:EcosystemWindows"
+        mc:Ignorable="d"
+        Title="Device Ecosystem" Height="450" Width="800">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{StaticResource SystemControlBackgroundAccentBrush}" Padding="20">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="Device Ecosystem" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                    <Border Background="White" CornerRadius="10" Padding="8,4" Margin="20,0,0,0">
+                        <TextBlock x:Name="StatusText" Text="Disconnected" Foreground="{StaticResource SystemControlBackgroundAccentBrush}" FontWeight="SemiBold"/>
+                    </Border>
+                </StackPanel>
+                
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="ShowQrButton" Content="Show QR Code" Click="ShowQrButton_Click" 
+                            Background="White" Foreground="{StaticResource SystemControlBackgroundAccentBrush}" 
+                            BorderBrush="White" Padding="15,8" Margin="0,0,10,0"/>
+                    <Button x:Name="RefreshButton" Content="Refresh" Click="RefreshButton_Click"
+                            Background="Transparent" Foreground="White" 
+                            BorderBrush="White" Padding="15,8"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Device List -->
+        <Grid Grid.Row="1" Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <TextBlock Grid.Row="0" Text="Discovered Devices" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10"/>
+            
+            <ListView x:Name="DeviceListView" Grid.Row="1" 
+                      BorderBrush="{StaticResource SystemControlForegroundBaseMediumBrush}"
+                      BorderThickness="1">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Device Name" Width="200">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="12" Height="12" CornerRadius="6" Margin="0,0,10,0"
+                                                Background="{Binding StatusColor}"/>
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="IP Address" Width="150" DisplayMemberBinding="{Binding IpAddress}"/>
+                        <GridViewColumn Header="Platform" Width="100" DisplayMemberBinding="{Binding Platform}"/>
+                        <GridViewColumn Header="Status" Width="120" DisplayMemberBinding="{Binding Status}"/>
+                        <GridViewColumn Header="Last Seen" Width="150" DisplayMemberBinding="{Binding LastSeenFormatted}"/>
+                        <GridViewColumn Header="Actions" Width="100">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="Connect" Click="ConnectButton_Click" 
+                                            Tag="{Binding Device}" Padding="10,4"
+                                            IsEnabled="{Binding CanConnect}"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+
+        <!-- Log -->
+        <Grid Grid.Row="2" Margin="20,0,20,20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="100"/>
+            </Grid.RowDefinitions>
+            
+            <TextBlock Grid.Row="0" Text="Event Log" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <ScrollViewer Grid.Row="1" BorderBrush="{StaticResource SystemControlForegroundBaseMediumBrush}" 
+                          BorderThickness="1">
+                <TextBox x:Name="LogTextBox" IsReadOnly="True" Background="{StaticResource SystemControlBackgroundChromeBlackMediumBrush}"
+                         Foreground="{StaticResource SystemControlForegroundBaseHighBrush}" FontFamily="Consolas" FontSize="11"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">Device Ecosystem</string>
+    
+    <!-- QR Scanner -->
+    <string name="qr_scanner_title">Scan QR Code</string>
+    <string name="qr_scanner_instructions">Point camera at QR code to connect</string>
+    
+    <!-- Connection Status -->
+    <string name="status_connected">Connected</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_connecting">Connecting...</string>
+    <string name="status_error">Connection Error</string>
+    
+    <!-- Buttons -->
+    <string name="button_connect">Connect</string>
+    <string name="button_disconnect">Disconnect</string>
+    <string name="button_scan_qr">Scan QR Code</string>
+    <string name="button_refresh">Refresh</string>
+    
+    <!-- Notifications -->
+    <string name="notification_channel_name">Device Ecosystem Service</string>
+    <string name="notification_channel_description">Keeps the device ecosystem connection active</string>
+    <string name="notification_connected">Connected to device</string>
+    <string name="notification_disconnected">Disconnected from device</string>
+    
+    <!-- Errors -->
+    <string name="error_connection_failed">Connection failed</string>
+    <string name="error_invalid_qr">Invalid QR code format</string>
+    <string name="error_permission_denied">Permission denied</string>
+</resources>

@@ -1,0 +1,70 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.vscode/
+.idea/
+*.iml
+
+# Cursor / local AI workspace
+.cursor/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+env/
+.env
+.env.*
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Logs and local DB/artifacts
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.hprof
+
+# Build outputs
+build/
+dist/
+out/
+release/
+debug/
+tmp/
+temp/
+
+# Binary artifacts
+*.exe
+*.apk
+*.aab
+
+# Android / Gradle
+.gradle/
+**/.gradle/
+gradle/
+.gradle-cache/
+.gradle-test-kit/
+local.properties
+captures/
+**/build/
+
+# Kotlin / Java
+*.class
+bin/
+target/
+**/.settings/
+**/.classpath
+**/.project
+
+/jdk-17.0.13+11/
+/jdk-25.0.2/
+/gradle-8.7/
+/gradle-9.3.1/
